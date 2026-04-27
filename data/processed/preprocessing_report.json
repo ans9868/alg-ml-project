@@ -1,0 +1,76 @@
+{
+  "data_source": "yfinance",
+  "kaggle_dataset": "andrewmvd/sp-500-stocks",
+  "data_download_date": "2025-04-27",
+  "window_requested": {
+    "start": "2014-01-01",
+    "end": "2024-12-31"
+  },
+  "window_effective_end": "2024-12-31",
+  "trading_days": 2768,
+  "candidate_pool_size": 491,
+  "stage1": {
+    "nan_in_window": [
+      "ABNB",
+      "AMTM",
+      "ANET",
+      "CARR",
+      "CEG",
+      "CFG",
+      "CRWD",
+      "CTVA",
+      "CZR",
+      "DELL",
+      "DOW",
+      "FOX",
+      "FOXA",
+      "FTV",
+      "GDDY",
+      "GEHC",
+      "GEV",
+      "HPE",
+      "HWM",
+      "INVH",
+      "IR",
+      "KEYS",
+      "KHC",
+      "KVUE",
+      "LW",
+      "MRNA",
+      "OTIS",
+      "PAYC",
+      "PLTR",
+      "PYPL",
+      "QRVO",
+      "SOLV",
+      "SYF",
+      "UBER",
+      "VICI",
+      "VLTO",
+      "VST"
+    ],
+    "delisted_before_end": [],
+    "low_coverage": [],
+    "extreme_returns": [],
+    "total_dropped": 37
+  },
+  "stage2": {
+    "consecutive_zero_returns": [
+      "AMCR",
+      "SW"
+    ],
+    "constant_price": [],
+    "total_dropped": 2
+  },
+  "survivors_count": 452,
+  "top_100_size": 100,
+  "top_200_size": 200,
+  "all_survivors_size": 452,
+  "no_missing_in_final_returns": true,
+  "config": {
+    "coverage_threshold": 0.95,
+    "extreme_return_threshold": 1.0,
+    "n_flat": 10,
+    "constant_price_threshold": 5
+  }
+}

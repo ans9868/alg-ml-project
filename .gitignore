@@ -8,3 +8,20 @@
 *.synctex.gz
 *.bbl
 *.blg
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Data (per proposal §4.2: pin Kaggle version + commit downloaded files;
+# but for now we don't want 96 MB of raw CSV in git history)
+data/raw/*.csv
+data/raw/*.zip
+data/processed/returns_matrix.csv
+
+# Keep the directory structure
+!data/raw/.gitkeep
+!data/processed/.gitkeep
