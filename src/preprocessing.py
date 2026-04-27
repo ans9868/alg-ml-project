@@ -175,3 +175,35 @@ def select_top_n(rankings: pd.Series, survivors: list[str], n: int) -> list[str]
     """Return top n tickers from survivors, ordered by ranking."""
     survivor_rankings = rankings[rankings.index.isin(survivors)]
     return survivor_rankings.head(n).index.tolist()
+
+
+# ---------------------------------------------------------------------
+# Train/test split + standardization (proposal §4.7--4.8)
+# ---------------------------------------------------------------------
+def chronological_train_test_split(
+    returns: pd.DataFrame, train_frac: float = 0.7
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Chronological split: first train_frac rows -> train, rest -> test.
+
+    No randomization (financial time series have temporal structure).
+    """
+    n_train = int(len(returns) * train_frac)
+    train = returns.iloc[:n_train].copy()
+    test = returns.iloc[n_train:].copy()
+    return train, test
+
+
+def standardize_with_train_stats(
+    train: pd.DataFrame, test: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    """Z-score per asset using train statistics only (no test leakage).
+
+    Returns (train_z, test_z, mu, sigma).
+    """
+    mu = train.mean(axis=0)
+    sigma = train.std(axis=0, ddof=1)
+    # Guard against zero std (constant column would have been dropped at Stage 2)
+    sigma = sigma.replace(0, np.nan)
+    train_z = (train - mu) / sigma
+    test_z = (test - mu) / sigma
+    return train_z, test_z, mu, sigma

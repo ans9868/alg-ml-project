@@ -67,32 +67,64 @@ No missing in final returns: ✓
 
 ---
 
-## Steps still to do (deferred to Phase 0 part 2)
+## Steps 6–8 — End-to-end smoke test ✓
 
-### Step 6 — Implement PCA end-to-end
-- [ ] Fit `sklearn.decomposition.TruncatedSVD` on train set (chronological 70/30 split)
-- [ ] Transform test set
-- [ ] Save compressed test-set matrix
+### Step 6 — PCA end-to-end ✓
+- [x] `src/preprocessing.py`: chronological 70/30 split, z-score with train-only statistics
+- [x] `src/pca_baseline.py`: `PCAReducer` wrapping `TruncatedSVD` with fit/transform interface (proposal §14.3)
+- [x] Fit on train (1936 days), transform test (831 days)
 
-### Step 7 — Implement distance distortion metric
-- [ ] Compute pairwise distances on raw test set (subsampled 50K pairs)
-- [ ] Compute pairwise distances on PCA-compressed test set
-- [ ] Report mean absolute distortion |ρ - 1|
+### Step 7 — Distance distortion metric ✓
+- [x] `src/metrics.py`: `sample_pair_indices`, `pairwise_distances`, `distance_distortion`
+- [x] Subsamples 50K pairs with fixed seed
+- [x] Returns mean / median / 95p `|rho - 1|`, plus mean rho
 
-### Step 8 — One-number test
-- [ ] Run on `top_100` slice with k=20
-- [ ] Confirm pipeline produces a single distortion number
+### Step 8 — One-number test ✓
+- [x] `scripts/run_phase0_smoke_test.py` ties it all together
+- [x] top_100 universe, k=20, single PCA run
+- [x] Result saved to `results/phase0_smoke_test.{csv,json}`
 
-### Step 9 — Commit (this commit covers Steps 1–5)
-- [x] Commit working data pipeline + plan docs to `adel` branch
+#### Smoke test result (top_100, PCA, k=20)
+
+```
+N (assets):                    100
+k (compressed dim):            20
+Trading days train/test:       1936 / 831
+Train range:                   2014-01-03 .. 2021-09-10
+Test  range:                   2021-09-13 .. 2024-12-31
+PCA cumulative explained var:  0.7109     (= strong low-rank structure)
+Pairs sampled:                 50,000
+  mean |rho - 1|               0.2580
+  median |rho - 1|             0.2523
+  95th-pct |rho - 1|           0.4443
+  mean rho                     0.7420     (compressed distances under-estimate raw)
+```
+
+**Interpretation:** PCA captures 71% of variance in 20 dims out of 100. This is consistent with the proposal's hypothesis that financial returns lie close to a low-rank factor space. The under-estimation of distances (mean ρ < 1) is expected — PCA discards orthogonal-to-factor variance, so compressed distances are systematically smaller than raw. The actual research story comes from sweeping k and comparing methods, not from one number.
+
+### Step 9 — Commit ✓
+- [x] Commit working scaffold to `adel` branch
 
 ---
 
 ## What to do after Phase 0
 
-Phase 0 (steps 1–5) is **on track**. 452 survivors gives us full top_100 and top_200 universes. AAPL, MSFT, NVDA, JPM, etc. all present and ranked correctly. No further data surprises expected.
+**Phase 0 complete.** All 8 steps green:
+- Data pipeline (yfinance → 452 survivors) ✓
+- PCA baseline ✓
+- Distance distortion metric ✓
+- End-to-end smoke test produces sensible numbers ✓
 
-Continue to **steps 6–8** (one method + one metric end-to-end), then move to **Phase 1: Core results** per [`PROJECT_PLAN.md`](PROJECT_PLAN.md).
+Move to **Phase 1: Core results** per [`PROJECT_PLAN.md`](PROJECT_PLAN.md). Phase 1 needs:
+
+- `src/projections.py` — dense Gaussian JL + sparse JL with the fit/transform interface
+- `src/experiment_config.py` — `ExperimentConfig` dataclass per proposal §9.3
+- `src/experiment_runner.py` — local backend; spans (method × k × s × seed × slice) grid
+- Remaining metrics — NN overlap, clustering ARI, anomaly recall, runtime
+- COVID slice handling
+- Synthetic factor-model data generator
+
+This can stay on the laptop (single-node multiprocessing). Cloud only becomes interesting once we add Ray for the synthetic+expanded grid in Phase 2.
 
 ---
 

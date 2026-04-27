@@ -1,0 +1,2 @@
+universe,n_assets,k,method,seed,train_frac,n_pairs_sampled,explained_variance,mean_abs_distortion,median_abs_distortion,p95_abs_distortion,mean_rho
+top_100,100,20,pca,0,0.7,50000,0.7108824326056717,0.25802382551847114,0.2522743059399812,0.444306158203431,0.7419761744815289

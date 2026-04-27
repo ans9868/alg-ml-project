@@ -1,0 +1,14 @@
+{
+  "universe": "top_100",
+  "n_assets": 100,
+  "k": 20,
+  "method": "pca",
+  "seed": 0,
+  "train_frac": 0.7,
+  "n_pairs_sampled": 50000,
+  "explained_variance": 0.7108824326056717,
+  "mean_abs_distortion": 0.25802382551847114,
+  "median_abs_distortion": 0.2522743059399812,
+  "p95_abs_distortion": 0.444306158203431,
+  "mean_rho": 0.7419761744815289
+}
