@@ -84,7 +84,7 @@ No missing in final returns: ✓
 - [x] top_100 universe, k=20, single PCA run
 - [x] Result saved to `results/phase0_smoke_test.{csv,json}`
 
-#### Smoke test result (top_100, PCA, k=20)
+#### Smoke test result (top_100, k=20, seed=0, all 4 methods)
 
 ```
 N (assets):                    100
@@ -92,15 +92,25 @@ k (compressed dim):            20
 Trading days train/test:       1936 / 831
 Train range:                   2014-01-03 .. 2021-09-10
 Test  range:                   2021-09-13 .. 2024-12-31
-PCA cumulative explained var:  0.7109     (= strong low-rank structure)
+PCA cumulative explained var:  0.7109     (strong low-rank structure)
 Pairs sampled:                 50,000
-  mean |rho - 1|               0.2580
-  median |rho - 1|             0.2523
-  95th-pct |rho - 1|           0.4443
-  mean rho                     0.7420     (compressed distances under-estimate raw)
 ```
 
-**Interpretation:** PCA captures 71% of variance in 20 dims out of 100. This is consistent with the proposal's hypothesis that financial returns lie close to a low-rank factor space. The under-estimation of distances (mean ρ < 1) is expected — PCA discards orthogonal-to-factor variance, so compressed distances are systematically smaller than raw. The actual research story comes from sweeping k and comparing methods, not from one number.
+| Method | mean \|ρ-1\| | median \|ρ-1\| | p95 \|ρ-1\| | mean ρ | nnz |
+|---|---|---|---|---|---|
+| raw | 0.0000 | 0.0000 | 0.0000 | 1.0000 | (identity) |
+| **PCA** | 0.2580 | 0.2523 | 0.4443 | **0.7420** | data-adaptive |
+| **dense JL** | 0.1242 | 0.1059 | 0.3020 | **1.0082** | 2000 |
+| **sparse JL** s=3 | 0.1147 | 0.0969 | 0.2821 | **0.9756** | **300** |
+
+**Interpretation (theory holds):**
+
+- **PCA mean ρ = 0.74** — systematically under-estimates distances. PCA preserves variance in the top-k factor subspace and discards orthogonal directions. Distances between days that differ in the discarded directions get compressed.
+- **Dense Gaussian JL mean ρ = 1.008** — distance preservation almost exactly. The Johnson–Lindenstrauss lemma in action.
+- **Sparse JL mean ρ = 0.976** with only 300 nonzeros vs 2000 for dense — **6.7× fewer parameters**, comparable distortion. The sparsity is essentially free at this k.
+- **PCA captures 71% of variance** — strong low-rank structure in financial returns, supporting the proposal's hypothesis.
+
+⚠️ *Single seed result.* Per proposal §6.7 fairness rule, the real comparison averages 10 seeds. Sparse JL marginally beating dense JL on \|ρ-1\| here is noise — both should be near-equivalent in expectation.
 
 ### Step 9 — Commit ✓
 - [x] Commit working scaffold to `adel` branch

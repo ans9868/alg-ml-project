@@ -29,12 +29,14 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src import metrics
 from src import preprocessing as pp
 from src.pca_baseline import PCAReducer
+from src.projections import DenseGaussianJL, SparseJL
 
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 RESULTS_DIR = PROJECT_ROOT / "results"
 
 UNIVERSE = "top_100"
 K = 20
+SPARSE_S = 3  # primary sparse JL value per proposal §6.4
 TRAIN_FRAC = 0.7
 N_PAIRS = 50_000
 SEED = 0
@@ -71,60 +73,93 @@ def main() -> None:
     assert X_train_z.isna().sum().sum() == 0
     assert X_test_z.isna().sum().sum() == 0
 
-    Z_raw_test = X_test_z.values  # reference geometry (proposal §6.6)
+    X_train_arr = X_train_z.values
+    X_test_arr = X_test_z.values
+    Z_raw_test = X_test_arr  # reference geometry (proposal §6.6)
 
-    print(f"[4/5] PCA fit on train (k={K}), transform test")
-    pca = PCAReducer(k=K, random_state=SEED).fit(X_train_z.values)
-    Z_pca_test = pca.transform(X_test_z.values)
-    print(f"      Z_raw_test shape: {Z_raw_test.shape}")
-    print(f"      Z_pca_test shape: {Z_pca_test.shape}")
-    print(f"      explained variance ratio (cumulative top {K}): {pca.explained_variance_ratio.sum():.4f}")
+    print(f"[4/5] Fit & transform all 4 methods at k={K}")
+    methods: dict[str, dict] = {}
 
-    print(f"[5/5] Distance distortion (sampled {N_PAIRS} pairs)")
-    result = metrics.distance_distortion(
-        Z_raw=Z_raw_test,
-        Z_compressed=Z_pca_test,
-        n_pairs=N_PAIRS,
-        seed=SEED,
-    )
+    # raw: identity
+    methods["raw"] = {"Z_test": Z_raw_test, "extras": {}}
 
-    print()
-    print("=" * 60)
-    print("PHASE 0 SMOKE TEST RESULT")
-    print("=" * 60)
-    print(f"Universe:                      {UNIVERSE}")
-    print(f"N (assets):                    {len(top_100)}")
-    print(f"k (compressed dim):            {K}")
-    print(f"PCA explained variance:        {pca.explained_variance_ratio.sum():.4f}")
-    print(f"Test rows:                     {len(X_test)}")
-    print(f"Pairs sampled:                 {result['n_pairs']:,}")
-    print(f"  mean |rho - 1|               {result['mean_abs_distortion']:.4f}")
-    print(f"  median |rho - 1|             {result['median_abs_distortion']:.4f}")
-    print(f"  95th-pct |rho - 1|           {result['p95_abs_distortion']:.4f}")
-    print(f"  mean rho                     {result['mean_rho']:.4f}")
-    print()
-
-    # Persist a small results CSV
-    out = {
-        "universe": UNIVERSE,
-        "n_assets": len(top_100),
-        "k": K,
-        "method": "pca",
-        "seed": SEED,
-        "train_frac": TRAIN_FRAC,
-        "n_pairs_sampled": result["n_pairs"],
-        "explained_variance": float(pca.explained_variance_ratio.sum()),
-        "mean_abs_distortion": result["mean_abs_distortion"],
-        "median_abs_distortion": result["median_abs_distortion"],
-        "p95_abs_distortion": result["p95_abs_distortion"],
-        "mean_rho": result["mean_rho"],
+    # PCA
+    pca = PCAReducer(k=K, random_state=SEED).fit(X_train_arr)
+    methods["pca"] = {
+        "Z_test": pca.transform(X_test_arr),
+        "extras": {"explained_variance": float(pca.explained_variance_ratio.sum())},
     }
-    pd.DataFrame([out]).to_csv(
-        RESULTS_DIR / "phase0_smoke_test.csv", index=False
+
+    # Dense Gaussian JL
+    dense_jl = DenseGaussianJL(k=K, seed=SEED).fit(X_train_arr)
+    methods["dense_jl"] = {
+        "Z_test": dense_jl.transform(X_test_arr),
+        "extras": {"nnz": dense_jl.nnz},
+    }
+
+    # Sparse JL (s=3)
+    sparse_jl = SparseJL(k=K, s=SPARSE_S, seed=SEED).fit(X_train_arr)
+    methods["sparse_jl_s3"] = {
+        "Z_test": sparse_jl.transform(X_test_arr),
+        "extras": {"nnz": sparse_jl.nnz, "s": SPARSE_S},
+    }
+
+    for name, m in methods.items():
+        print(f"      {name:15s} -> Z_test shape {m['Z_test'].shape}  extras={m['extras']}")
+
+    print(f"[5/5] Distance distortion ({N_PAIRS:,} sampled pairs, seed={SEED})")
+    rows = []
+    for name, m in methods.items():
+        result = metrics.distance_distortion(
+            Z_raw=Z_raw_test,
+            Z_compressed=m["Z_test"],
+            n_pairs=N_PAIRS,
+            seed=SEED,
+        )
+        row = {
+            "method": name,
+            "universe": UNIVERSE,
+            "n_assets": len(top_100),
+            "k": K,
+            "seed": SEED,
+            "train_frac": TRAIN_FRAC,
+            "n_pairs": result["n_pairs"],
+            "mean_abs_distortion": result["mean_abs_distortion"],
+            "median_abs_distortion": result["median_abs_distortion"],
+            "p95_abs_distortion": result["p95_abs_distortion"],
+            "mean_rho": result["mean_rho"],
+            **m["extras"],
+        }
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    print()
+    print("=" * 92)
+    print(f"PHASE 0 SMOKE TEST  -- universe={UNIVERSE}, N={len(top_100)}, k={K}")
+    print("=" * 92)
+    print(
+        df[
+            [
+                "method",
+                "mean_abs_distortion",
+                "median_abs_distortion",
+                "p95_abs_distortion",
+                "mean_rho",
+            ]
+        ].to_string(index=False, float_format=lambda x: f"{x:.4f}")
     )
+    print()
+    print("Notes:")
+    print("  - 'raw' is identity (uncompressed) -- mean_rho == 1.0 by definition.")
+    print("  - PCA discards orthogonal-to-factor variance -> mean_rho < 1.")
+    print("  - Dense JL preserves distances on average (mean_rho ~ 1) per JL lemma.")
+    print("  - Sparse JL approximates dense JL with N*s nonzeros instead of N*k.")
+    print()
+
+    df.to_csv(RESULTS_DIR / "phase0_smoke_test.csv", index=False)
     with open(RESULTS_DIR / "phase0_smoke_test.json", "w") as f:
-        json.dump(out, f, indent=2)
-    print(f"Result written to results/phase0_smoke_test.csv and .json")
+        json.dump(rows, f, indent=2)
+    print(f"Results written to results/phase0_smoke_test.csv and .json")
 
 
 if __name__ == "__main__":
