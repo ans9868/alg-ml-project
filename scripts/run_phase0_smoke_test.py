@@ -28,6 +28,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src import metrics
 from src import preprocessing as pp
+from src.crashsketch import CrashSketch
 from src.pca_baseline import PCAReducer
 from src.projections import DenseGaussianJL, SparseJL
 from src.utils import (
@@ -116,18 +117,53 @@ def main() -> None:
         "extras": {"nnz": sparse_jl.nnz, "s": SPARSE_S},
     }
 
+    # CrashSketch with rotation (the proposed novel method)
+    cs_R = CrashSketch(k=K, s=SPARSE_S, seed=SEED, use_rotation=True).fit(X_train_arr)
+    methods["crashsketch_R_s3"] = {
+        "Z_test": cs_R.transform(X_test_arr),
+        "obj": cs_R,
+        "extras": {
+            "nnz_S": cs_R.nnz,
+            "nnz_total_with_R": cs_R.total_nnz_with_rotation,
+            "s": SPARSE_S,
+            "use_rotation": True,
+        },
+    }
+
+    # CrashSketch without rotation (ablation: shows what rotation contributes)
+    cs_noR = CrashSketch(k=K, s=SPARSE_S, seed=SEED, use_rotation=False).fit(X_train_arr)
+    methods["crashsketch_noR_s3"] = {
+        "Z_test": cs_noR.transform(X_test_arr),
+        "obj": cs_noR,
+        "extras": {
+            "nnz_S": cs_noR.nnz,
+            "s": SPARSE_S,
+            "use_rotation": False,
+        },
+    }
+
     for name, m in methods.items():
         print(f"      {name:15s} -> Z_test shape {m['Z_test'].shape}  extras={m['extras']}")
 
-    print(f"[5/5] Distance distortion ({N_PAIRS:,} sampled pairs, seed={SEED})")
+    print(f"[5/5] All 5 metrics ({N_PAIRS:,} sampled pairs for distance, seed={SEED})")
     rows = []
     git_sha = get_git_sha(PROJECT_ROOT)
     for name, m in methods.items():
-        result = metrics.distance_distortion(
-            Z_raw=Z_raw_test,
-            Z_compressed=m["Z_test"],
-            n_pairs=N_PAIRS,
-            seed=SEED,
+        dist = metrics.distance_distortion(
+            Z_raw=Z_raw_test, Z_compressed=m["Z_test"],
+            n_pairs=N_PAIRS, seed=SEED,
+        )
+        nn = metrics.nearest_neighbor_overlap(
+            Z_raw=Z_raw_test, Z_compressed=m["Z_test"],
+            m_values=(5, 10),
+        )
+        ari = metrics.clustering_ari(
+            Z_raw=Z_raw_test, Z_compressed=m["Z_test"],
+            cluster_counts=(3, 5, 8), seed=SEED,
+        )
+        anom = metrics.anomaly_recall(
+            Z_raw=Z_raw_test, Z_compressed=m["Z_test"],
+            top_pct=0.05,
         )
         row = {
             "method": name,
@@ -137,18 +173,31 @@ def main() -> None:
             "k": K,
             "seed": SEED,
             "train_frac": TRAIN_FRAC,
-            "n_pairs": result["n_pairs"],
-            "mean_abs_distortion": result["mean_abs_distortion"],
-            "median_abs_distortion": result["median_abs_distortion"],
-            "p95_abs_distortion": result["p95_abs_distortion"],
-            "mean_rho": result["mean_rho"],
+            # distance distortion
+            "dd_mean_abs": dist["mean_abs_distortion"],
+            "dd_median_abs": dist["median_abs_distortion"],
+            "dd_p95_abs": dist["p95_abs_distortion"],
+            "dd_mean_rho": dist["mean_rho"],
+            # nearest neighbor
+            "nn_overlap_at_5": nn["nn_overlap_at_5"],
+            "nn_overlap_at_10": nn["nn_overlap_at_10"],
+            # clustering ari
+            "ari_C3": ari["ari_C3"],
+            "ari_C5": ari["ari_C5"],
+            "ari_C8": ari["ari_C8"],
+            "ari_mean": ari["ari_mean"],
+            # anomaly
+            "anomaly_recall_5pct": anom["anomaly_recall_at_5pct"],
+            "anomaly_score_spearman": anom["anomaly_score_spearman"],
+            "anomaly_top10_overlap": anom["anomaly_top10_overlap"],
             **m["extras"],
         }
         rows.append(row)
 
         if SAVE_ARTIFACTS:
             # Build per-config run directory
-            s_part = f"s{SPARSE_S}" if name == "sparse_jl_s3" else "sNA"
+            uses_s = ("s" in name) or name.startswith("crashsketch")
+            s_part = f"s{SPARSE_S}" if uses_s else "sNA"
             run_dir = (
                 ARTIFACT_DIR
                 / UNIVERSE
@@ -171,7 +220,12 @@ def main() -> None:
                 obj.save(run_dir / "projection.npz")
 
             # Save metric results + run metadata
-            save_json(run_dir / "metrics.json", {"distance_distortion": result})
+            save_json(run_dir / "metrics.json", {
+                "distance_distortion": dist,
+                "nearest_neighbor": nn,
+                "clustering_ari": ari,
+                "anomaly_recall": anom,
+            })
             save_json(
                 run_dir / "run_meta.json",
                 {
@@ -179,7 +233,7 @@ def main() -> None:
                     "universe": UNIVERSE,
                     "slice": SLICE,
                     "k": K,
-                    "s": SPARSE_S if name == "sparse_jl_s3" else None,
+                    "s": SPARSE_S if uses_s else None,
                     "seed": SEED,
                     "n_assets": len(top_100),
                     "train_frac": TRAIN_FRAC,
@@ -191,26 +245,23 @@ def main() -> None:
 
     df = pd.DataFrame(rows)
     print()
-    print("=" * 92)
-    print(f"PHASE 0 SMOKE TEST  -- universe={UNIVERSE}, N={len(top_100)}, k={K}")
-    print("=" * 92)
+    print("=" * 110)
+    print(f"PHASE 0 SMOKE TEST  -- universe={UNIVERSE}, N={len(top_100)}, k={K}, single seed={SEED}")
+    print("=" * 110)
     print(
-        df[
-            [
-                "method",
-                "mean_abs_distortion",
-                "median_abs_distortion",
-                "p95_abs_distortion",
-                "mean_rho",
-            ]
-        ].to_string(index=False, float_format=lambda x: f"{x:.4f}")
+        df[[
+            "method",
+            "dd_mean_abs", "dd_mean_rho",
+            "nn_overlap_at_5", "nn_overlap_at_10",
+            "ari_mean",
+            "anomaly_recall_5pct", "anomaly_top10_overlap",
+        ]].to_string(index=False, float_format=lambda x: f"{x:.4f}")
     )
     print()
     print("Notes:")
-    print("  - 'raw' is identity (uncompressed) -- mean_rho == 1.0 by definition.")
-    print("  - PCA discards orthogonal-to-factor variance -> mean_rho < 1.")
-    print("  - Dense JL preserves distances on average (mean_rho ~ 1) per JL lemma.")
-    print("  - Sparse JL approximates dense JL with N*s nonzeros instead of N*k.")
+    print("  - Single-seed numbers for randomized methods are noise-dominated; treat as sanity check, not result.")
+    print("  - 'raw' is identity --> all metrics at perfect value by construction.")
+    print("  - 'crashsketch_R_s3' is the proposed novel method (sparse + rotation); 'crashsketch_noR_s3' is the ablation.")
     print()
 
     df.to_csv(RESULTS_DIR / "phase0_smoke_test.csv", index=False)

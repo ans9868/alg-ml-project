@@ -51,11 +51,20 @@ def generate_experiment_grid(
     universes = list(universes)
     protocol_slices = [(p, list(ss)) for p, ss in protocol_slices]
 
+    # Methods that take an `s` (sparsity) parameter and have multiple seeds
+    SPARSE_RANDOMIZED = {"sparse_jl",
+                         "crashsketch_R", "crashsketch_noR",
+                         "crashsketch_R_int8", "crashsketch_noR_int8",
+                         "crashsketch_R_1bit", "crashsketch_noR_1bit",
+                         "crashsketch_R_normsign", "crashsketch_noR_normsign"}
+    DENSE_RANDOMIZED = {"dense_jl"}
+    DETERMINISTIC = {"pca", "raw"}
+
     configs: list[ExperimentConfig] = []
     for universe in universes:
         for protocol, slices in protocol_slices:
             for slice_, method, k in product(slices, methods, k_values):
-                if method == "sparse_jl":
+                if method in SPARSE_RANDOMIZED:
                     for s, seed in product(s_values, seeds):
                         if s > k:
                             continue
@@ -64,14 +73,14 @@ def generate_experiment_grid(
                             method=method, k=k, s=s, seed=seed,
                             train_frac=train_frac, n_pairs=n_pairs,
                         ))
-                elif method == "dense_jl":
+                elif method in DENSE_RANDOMIZED:
                     for seed in seeds:
                         configs.append(ExperimentConfig(
                             universe=universe, protocol=protocol, slice=slice_,
                             method=method, k=k, s=None, seed=seed,
                             train_frac=train_frac, n_pairs=n_pairs,
                         ))
-                elif method in ("pca", "raw"):
+                elif method in DETERMINISTIC:
                     configs.append(ExperimentConfig(
                         universe=universe, protocol=protocol, slice=slice_,
                         method=method, k=k, s=None, seed=seeds[0],

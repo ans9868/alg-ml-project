@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from src import metrics
+from src.crashsketch import CrashSketch
 from src.experiment_config import ExperimentConfig
 from src.pca_baseline import PCAReducer
 from src.projections import DenseGaussianJL, SparseJL
@@ -39,6 +40,30 @@ def _build_method(config: ExperimentConfig):
         return DenseGaussianJL(k=config.k, seed=config.seed)
     if config.method == "sparse_jl":
         return SparseJL(k=config.k, s=config.s, seed=config.seed)
+    if config.method == "crashsketch_R":
+        return CrashSketch(k=config.k, s=config.s, seed=config.seed,
+                           use_rotation=True, quantize="float")
+    if config.method == "crashsketch_noR":
+        return CrashSketch(k=config.k, s=config.s, seed=config.seed,
+                           use_rotation=False, quantize="float")
+    if config.method == "crashsketch_R_int8":
+        return CrashSketch(k=config.k, s=config.s, seed=config.seed,
+                           use_rotation=True, quantize="int8")
+    if config.method == "crashsketch_noR_int8":
+        return CrashSketch(k=config.k, s=config.s, seed=config.seed,
+                           use_rotation=False, quantize="int8")
+    if config.method == "crashsketch_R_1bit":
+        return CrashSketch(k=config.k, s=config.s, seed=config.seed,
+                           use_rotation=True, quantize="1bit")
+    if config.method == "crashsketch_noR_1bit":
+        return CrashSketch(k=config.k, s=config.s, seed=config.seed,
+                           use_rotation=False, quantize="1bit")
+    if config.method == "crashsketch_R_normsign":
+        return CrashSketch(k=config.k, s=config.s, seed=config.seed,
+                           use_rotation=True, quantize="normsign")
+    if config.method == "crashsketch_noR_normsign":
+        return CrashSketch(k=config.k, s=config.s, seed=config.seed,
+                           use_rotation=False, quantize="normsign")
     raise ValueError(f"Unknown method {config.method!r}")
 
 
@@ -86,6 +111,8 @@ def _run_single_config(
             proj_shape = method.A.shape                 # (N, k)
         elif config.method == "sparse_jl":
             proj_shape = method.S.shape                 # (N, k)
+        elif config.method.startswith("crashsketch_"):
+            proj_shape = method.S.shape                 # (N, k); R is separate
         else:
             proj_shape = None
 

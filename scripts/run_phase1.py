@@ -174,6 +174,30 @@ def grid_top100_full() -> list[ExperimentConfig]:
     )
 
 
+def grid_path_b() -> list[ExperimentConfig]:
+    """CrashSketch evaluation grid: top_100, k=20, both protocols, all slices, 20 seeds.
+    Compares all CrashSketch variants (R/noR x float/int8) against raw, PCA,
+    dense JL, sparse JL.
+
+    The interesting comparisons:
+      - crashsketch_R_int8 vs crashsketch_noR_int8: does rotation help when paired
+        with quantization? (The PolarQuant claim)
+      - crashsketch_*_int8 vs sparse_jl: does adding quantization hurt much?
+    """
+    return generate_experiment_grid(
+        universes=["top_100"],
+        protocol_slices=[CHRONO, PRECOVID],
+        methods=["raw", "pca", "dense_jl", "sparse_jl",
+                 "crashsketch_R", "crashsketch_noR",
+                 "crashsketch_R_int8", "crashsketch_noR_int8",
+                 "crashsketch_R_1bit", "crashsketch_noR_1bit",
+                 "crashsketch_R_normsign", "crashsketch_noR_normsign"],
+        k_values=[20],
+        s_values=[3],
+        seeds=range(20),
+    )
+
+
 def grid_yolo() -> list[ExperimentConfig]:
     """The whole shebang. 5 universes (top_100/200/300/400/MAX),
     both protocols, all slices, 100 seeds. ~50K configs.
@@ -197,6 +221,7 @@ SUBSETS = {
     "smoke": grid_smoke,
     "core": grid_core,
     "top100_full": grid_top100_full,
+    "path_b": grid_path_b,
     "yolo": grid_yolo,
     "full": grid_full,
 }
