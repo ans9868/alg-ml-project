@@ -119,6 +119,18 @@ def grid_core() -> list[ExperimentConfig]:
     )
 
 
+def grid_top100_full() -> list[ExperimentConfig]:
+    """Comprehensive top_100 grid: 50 seeds, all slices (covid_only auto-skipped)."""
+    return generate_experiment_grid(
+        universes=["top_100"],
+        slices=["full_incl_covid", "full_excl_covid", "covid_only"],
+        methods=["raw", "pca", "dense_jl", "sparse_jl"],
+        k_values=[5, 10, 20, 30, 50, 100],
+        s_values=[1, 3, 5],
+        seeds=range(50),
+    )
+
+
 def grid_full() -> list[ExperimentConfig]:
     return generate_experiment_grid(
         universes=["top_100", "top_200", "all_survivors"],
@@ -130,7 +142,12 @@ def grid_full() -> list[ExperimentConfig]:
     )
 
 
-SUBSETS = {"smoke": grid_smoke, "core": grid_core, "full": grid_full}
+SUBSETS = {
+    "smoke": grid_smoke,
+    "core": grid_core,
+    "top100_full": grid_top100_full,
+    "full": grid_full,
+}
 
 
 # ---------------------------------------------------------------------
@@ -152,10 +169,22 @@ def main():
     # Pre-load all needed (universe, slice) pairs.
     needed_pairs = sorted({(c.universe, c.slice) for c in configs})
     prepared_data: dict[str, dict] = {}
+    skipped_pairs: list[tuple[str, str]] = []
     print(f"Preparing data for {len(needed_pairs)} (universe, slice) pairs...")
     for universe, slice_ in needed_pairs:
         key = f"{universe}__{slice_}"
-        prepared_data[key] = load_universe_data(universe, slice_, train_frac=configs[0].train_frac)
+        d = load_universe_data(universe, slice_, train_frac=configs[0].train_frac)
+        # Skip degenerate slices (e.g. covid_only with the standard 70/30 split
+        # has 0 test rows because COVID lives in train). Per proposal §5.5
+        # the proper fix is a pre-COVID training protocol; tracked as Phase 1.5.
+        if d["X_test"].shape[0] < 10:
+            print(f"  WARN: {universe}/{slice_} has {d['X_test'].shape[0]} test rows -- skipping")
+            skipped_pairs.append((universe, slice_))
+            continue
+        prepared_data[key] = d
+    if skipped_pairs:
+        configs = [c for c in configs if (c.universe, c.slice) not in skipped_pairs]
+        print(f"  Skipped configs after filter: {len(configs)} remaining")
 
     # Re-key configs by (universe, slice) so the runner finds them
     # (the runner's prepared_data is keyed by universe; we use a composite key).
