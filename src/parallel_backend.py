@@ -56,24 +56,40 @@ def _run_single_config(
     X_train = data["X_train"]   # standardized train (np.ndarray)
     X_test = data["X_test"]     # standardized test (np.ndarray)
 
-    t0 = time.perf_counter()
+    # --- Fit + transform (timed separately for runtime metric) ---
     method = _build_method(config)
     if method is None:
+        fit_seconds = 0.0
+        t0 = time.perf_counter()
         Z_test = X_test                 # raw / identity
+        transform_seconds = time.perf_counter() - t0
         nnz = -1
         explained_var = None
+        proj_shape = None
     else:
+        t0 = time.perf_counter()
         method.fit(X_train)
+        fit_seconds = time.perf_counter() - t0
+        t0 = time.perf_counter()
         Z_test = method.transform(X_test)
-        nnz = getattr(method, "nnz", -1)
+        transform_seconds = time.perf_counter() - t0
+        nnz = int(getattr(method, "nnz", -1))
         explained_var = (
             float(method.explained_variance_ratio.sum())
             if config.method == "pca"
             else None
         )
-    fit_transform_seconds = time.perf_counter() - t0
+        # projection matrix shape for sparsity ratio
+        if config.method == "pca":
+            proj_shape = method._svd.components_.shape  # (k, N)
+        elif config.method == "dense_jl":
+            proj_shape = method.A.shape                 # (N, k)
+        elif config.method == "sparse_jl":
+            proj_shape = method.S.shape                 # (N, k)
+        else:
+            proj_shape = None
 
-    # --- Metrics ---
+    # --- Metrics (timed together; individual metric times are sub-ms) ---
     t0 = time.perf_counter()
     dist = metrics.distance_distortion(
         Z_raw=X_test,
@@ -81,10 +97,40 @@ def _run_single_config(
         n_pairs=config.n_pairs,
         seed=config.seed,
     )
+    nn = metrics.nearest_neighbor_overlap(
+        Z_raw=X_test,
+        Z_compressed=Z_test,
+        m_values=(5, 10),
+    )
+    ari = metrics.clustering_ari(
+        Z_raw=X_test,
+        Z_compressed=Z_test,
+        cluster_counts=(3, 5, 8),
+        seed=config.seed,
+    )
+    anom = metrics.anomaly_recall(
+        Z_raw=X_test,
+        Z_compressed=Z_test,
+        top_pct=0.05,
+    )
     metrics_seconds = time.perf_counter() - t0
 
-    metrics_payload = {"distance_distortion": dist}
-    # (Phase 1 will add NN overlap, ARI, anomaly recall, etc.)
+    runtime = metrics.runtime_sparsity_summary(
+        fit_seconds=fit_seconds,
+        transform_seconds=transform_seconds,
+        metrics_seconds=metrics_seconds,
+        nnz=nnz if nnz >= 0 else 0,
+        matrix_shape=proj_shape,
+        method=config.method,
+    )
+
+    metrics_payload = {
+        "distance_distortion": dist,
+        "nearest_neighbor": nn,
+        "clustering_ari": ari,
+        "anomaly_recall": anom,
+        "runtime_sparsity": runtime,
+    }
 
     # --- Save artifacts ---
     if save_artifacts and artifact_base is not None:
@@ -108,26 +154,45 @@ def _run_single_config(
                 **asdict(config),
                 "nnz": nnz,
                 "explained_variance": explained_var,
-                "fit_transform_seconds": fit_transform_seconds,
+                "fit_seconds": fit_seconds,
+                "transform_seconds": transform_seconds,
                 "metrics_seconds": metrics_seconds,
                 "git_sha": git_sha,
                 "timestamp_utc": now_utc_iso(),
             },
         )
 
-    # --- Build result row ---
+    # --- Build result row (flatten all metrics with sensible prefixes) ---
     row = {
         **asdict(config),
         "nnz": nnz,
         "explained_variance": explained_var,
-        "fit_transform_seconds": fit_transform_seconds,
+        "fit_seconds": fit_seconds,
+        "transform_seconds": transform_seconds,
         "metrics_seconds": metrics_seconds,
-        # flatten distance distortion stats with a metric prefix
+        # distance distortion
         "dd_mean_abs": dist["mean_abs_distortion"],
         "dd_median_abs": dist["median_abs_distortion"],
         "dd_p95_abs": dist["p95_abs_distortion"],
         "dd_mean_rho": dist["mean_rho"],
         "dd_n_pairs": dist["n_pairs"],
+        # nearest neighbor
+        "nn_overlap_at_5": nn["nn_overlap_at_5"],
+        "nn_overlap_at_5_p10": nn["nn_overlap_at_5_p10"],
+        "nn_overlap_at_10": nn["nn_overlap_at_10"],
+        "nn_overlap_at_10_p10": nn["nn_overlap_at_10_p10"],
+        # clustering ARI
+        "ari_C3": ari["ari_C3"],
+        "ari_C5": ari["ari_C5"],
+        "ari_C8": ari["ari_C8"],
+        "ari_mean": ari["ari_mean"],
+        # anomaly recall
+        "anomaly_recall_5pct": anom["anomaly_recall_at_5pct"],
+        "anomaly_precision_5pct": anom["anomaly_precision_at_5pct"],
+        "anomaly_score_spearman": anom["anomaly_score_spearman"],
+        "anomaly_top10_overlap": anom["anomaly_top10_overlap"],
+        # runtime
+        "sparsity_ratio": runtime["sparsity_ratio"],
     }
     return row
 

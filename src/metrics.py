@@ -1,10 +1,21 @@
 """Evaluation metrics (proposal §7).
 
-Phase 0 implements only Metric 1 (pairwise distance distortion).
+Implements all five metrics:
+  1. Pairwise distance distortion (§7.1)
+  2. Nearest-neighbor preservation (§7.2)
+  3. Clustering stability via Adjusted Rand Index (§7.3)
+  4. Anomaly recall (§7.4)
+  5. Runtime / sparsity (§7.5) -- captured by callers, summarized in metrics.
+
+All metrics return a dict of summary statistics so the runner can flatten
+them into a single result row.
 """
 from __future__ import annotations
 
 import numpy as np
+from sklearn.cluster import KMeans
+from sklearn.metrics import adjusted_rand_score
+from sklearn.neighbors import NearestNeighbors
 
 
 def sample_pair_indices(n: int, n_pairs: int, rng: np.random.Generator) -> np.ndarray:
@@ -73,4 +84,149 @@ def distance_distortion(
         "median_abs_distortion": float(np.median(abs_dev)),
         "p95_abs_distortion": float(np.quantile(abs_dev, 0.95)),
         "mean_rho": float(rho.mean()),
+    }
+
+
+# ---------------------------------------------------------------------
+# Metric 2: Nearest-Neighbor Preservation (proposal §7.2)
+# ---------------------------------------------------------------------
+def nearest_neighbor_overlap(
+    Z_raw: np.ndarray,
+    Z_compressed: np.ndarray,
+    m_values: tuple[int, ...] = (5, 10),
+) -> dict:
+    """For each test point, find its m nearest neighbors in raw and compressed
+    space; report mean fractional overlap across all points and m values.
+    """
+    assert Z_raw.shape[0] == Z_compressed.shape[0]
+    n = Z_raw.shape[0]
+
+    # Fit nearest-neighbor indexes on each space (k+1 because the point itself
+    # is always its own closest neighbor at distance 0; we drop it after).
+    max_m = max(m_values)
+    nn_raw = NearestNeighbors(n_neighbors=max_m + 1).fit(Z_raw)
+    nn_comp = NearestNeighbors(n_neighbors=max_m + 1).fit(Z_compressed)
+
+    _, idx_raw = nn_raw.kneighbors(Z_raw)         # (n, max_m+1)
+    _, idx_comp = nn_comp.kneighbors(Z_compressed)
+    # Drop the self-match (column 0)
+    idx_raw = idx_raw[:, 1:]
+    idx_comp = idx_comp[:, 1:]
+
+    out = {"n_points": int(n)}
+    for m in m_values:
+        # Per-point overlap fraction
+        overlaps = np.array(
+            [
+                len(set(idx_raw[i, :m]) & set(idx_comp[i, :m])) / m
+                for i in range(n)
+            ]
+        )
+        out[f"nn_overlap_at_{m}"] = float(overlaps.mean())
+        out[f"nn_overlap_at_{m}_p10"] = float(np.quantile(overlaps, 0.10))
+    return out
+
+
+# ---------------------------------------------------------------------
+# Metric 3: Clustering Stability (Adjusted Rand Index, proposal §7.3)
+# ---------------------------------------------------------------------
+def clustering_ari(
+    Z_raw: np.ndarray,
+    Z_compressed: np.ndarray,
+    cluster_counts: tuple[int, ...] = (3, 5, 8),
+    seed: int = 0,
+) -> dict:
+    """For each cluster count C, run KMeans on raw and compressed, compare
+    via Adjusted Rand Index. Higher ARI = clusterings agree more.
+    """
+    assert Z_raw.shape[0] == Z_compressed.shape[0]
+    out: dict = {}
+    for C in cluster_counts:
+        km_raw = KMeans(n_clusters=C, n_init=10, random_state=seed).fit(Z_raw)
+        km_comp = KMeans(n_clusters=C, n_init=10, random_state=seed).fit(Z_compressed)
+        ari = float(adjusted_rand_score(km_raw.labels_, km_comp.labels_))
+        out[f"ari_C{C}"] = ari
+    out["ari_mean"] = float(np.mean(list(out.values())))
+    return out
+
+
+# ---------------------------------------------------------------------
+# Metric 4: Anomaly Recall (proposal §7.4)
+# ---------------------------------------------------------------------
+def anomaly_recall(
+    Z_raw: np.ndarray,
+    Z_compressed: np.ndarray,
+    top_pct: float = 0.05,
+) -> dict:
+    """Define unusual days as the top top_pct of rows by L2 norm.
+    Compute set overlap between raw and compressed top-pct sets.
+    Also report Spearman-style rank correlation of the anomaly scores.
+    """
+    assert Z_raw.shape[0] == Z_compressed.shape[0]
+    n = Z_raw.shape[0]
+    k_top = max(1, int(np.ceil(n * top_pct)))
+
+    a_raw = np.linalg.norm(Z_raw, axis=1)
+    a_comp = np.linalg.norm(Z_compressed, axis=1)
+
+    top_raw = set(np.argsort(-a_raw)[:k_top].tolist())
+    top_comp = set(np.argsort(-a_comp)[:k_top].tolist())
+
+    overlap = len(top_raw & top_comp)
+    recall = overlap / len(top_raw)
+    precision = overlap / len(top_comp)
+
+    # Score correlation across all points (Pearson on ranks ~ Spearman)
+    rank_raw = np.argsort(np.argsort(a_raw))
+    rank_comp = np.argsort(np.argsort(a_comp))
+    if len(rank_raw) > 1:
+        spearman = float(np.corrcoef(rank_raw, rank_comp)[0, 1])
+    else:
+        spearman = float("nan")
+
+    # Top-10 unusual day overlap (separate from top-pct)
+    k10 = min(10, n)
+    top10_raw = set(np.argsort(-a_raw)[:k10].tolist())
+    top10_comp = set(np.argsort(-a_comp)[:k10].tolist())
+    top10_overlap = len(top10_raw & top10_comp) / k10
+
+    return {
+        "anomaly_n_top": int(k_top),
+        "anomaly_recall_at_5pct": float(recall),
+        "anomaly_precision_at_5pct": float(precision),
+        "anomaly_score_spearman": spearman,
+        "anomaly_top10_overlap": float(top10_overlap),
+    }
+
+
+# ---------------------------------------------------------------------
+# Metric 5: Runtime / Sparsity (proposal §7.5)
+# ---------------------------------------------------------------------
+def runtime_sparsity_summary(
+    fit_seconds: float,
+    transform_seconds: float,
+    metrics_seconds: float,
+    nnz: int,
+    matrix_shape: tuple[int, int] | None,
+    method: str,
+) -> dict:
+    """Compose runtime / sparsity numbers into a metric dict. Caller is
+    responsible for measuring fit/transform/metrics times; this just packages
+    them into the standard summary schema.
+    """
+    if matrix_shape is not None:
+        n_rows, n_cols = matrix_shape
+        total_entries = n_rows * n_cols
+        sparsity_ratio = (
+            1.0 - (nnz / total_entries) if total_entries > 0 and nnz >= 0 else float("nan")
+        )
+    else:
+        sparsity_ratio = float("nan")
+    return {
+        "fit_seconds": float(fit_seconds),
+        "transform_seconds": float(transform_seconds),
+        "metrics_seconds": float(metrics_seconds),
+        "nnz": int(nnz),
+        "sparsity_ratio": float(sparsity_ratio),
+        "method_family": method,
     }
