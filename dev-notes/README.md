@@ -11,6 +11,9 @@ Technical notes for engineers working on this project. Audience: developers and 
 | [data-source-comparison.md](data-source-comparison.md) | Detailed comparison of yfinance vs the Kaggle `andrewmvd/sp-500-stocks` dataset. Documents the Phase 0 finding that the Kaggle dataset is broken for ~127 large-cap tickers. |
 | [phase0-findings.md](phase0-findings.md) | Empirical findings from the Phase 0 smoke test, including amendments to the frozen proposal. |
 | [architecture.md](architecture.md) | Module-by-module description of the codebase. How `data_loader`, `preprocessing`, `projections`, `pca_baseline`, `metrics` fit together. |
+| [upgrade-better-saving.md](upgrade-better-saving.md) | Plan to persist all intermediates (Z matrices, projection matrices, etc.) so new metrics can be added without re-fitting. |
+| [upgrade-ray-parallelization.md](upgrade-ray-parallelization.md) | Plan to move from sequential to Ray-based parallel execution; covers `ExperimentConfig`, runner, backends. |
+| [hpc-experiments.md](hpc-experiments.md) | Phase 1 cloud experiment plan: VM choice, the full config matrix, staged order of operations, success criteria. |
 
 ## Where the high-level docs live
 
