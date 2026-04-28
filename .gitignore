@@ -22,6 +22,11 @@ data/raw/*.csv
 data/raw/*.zip
 data/processed/returns_matrix.csv
 
+# Per-config experiment artifacts (compressed.npz, projection.npz, ...).
+# These are reproducible from the seed + the recipe in the runner script.
+# Keep aggregated CSVs in results/, but not the thousands of per-run files.
+results/*/runs/
+
 # Keep the directory structure
 !data/raw/.gitkeep
 !data/processed/.gitkeep

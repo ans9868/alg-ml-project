@@ -6,7 +6,11 @@ transform / fit_transform interface as PCAReducer.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+
+from src.utils import load_npz_dict, save_npz_dict
 
 
 class DenseGaussianJL:
@@ -39,6 +43,24 @@ class DenseGaussianJL:
     def nnz(self) -> int:
         """Number of nonzero entries (always N*k for dense)."""
         return int(self.A.size) if self.A is not None else 0
+
+    def save(self, path: Path) -> None:
+        if self.A is None:
+            raise RuntimeError("Cannot save an unfit DenseGaussianJL.")
+        save_npz_dict(
+            path,
+            method=np.array(["dense_jl"]),
+            k=np.array([self.k]),
+            seed=np.array([self.seed]),
+            A=self.A,
+        )
+
+    @classmethod
+    def load(cls, path: Path) -> "DenseGaussianJL":
+        d = load_npz_dict(path)
+        obj = cls(k=int(d["k"][0]), seed=int(d["seed"][0]))
+        obj.A = d["A"]
+        return obj
 
 
 class SparseJL:
@@ -87,3 +109,22 @@ class SparseJL:
     def nnz(self) -> int:
         """Number of nonzero entries in the projection matrix."""
         return int(np.count_nonzero(self.S)) if self.S is not None else 0
+
+    def save(self, path: Path) -> None:
+        if self.S is None:
+            raise RuntimeError("Cannot save an unfit SparseJL.")
+        save_npz_dict(
+            path,
+            method=np.array(["sparse_jl"]),
+            k=np.array([self.k]),
+            s=np.array([self.s]),
+            seed=np.array([self.seed]),
+            S=self.S,
+        )
+
+    @classmethod
+    def load(cls, path: Path) -> "SparseJL":
+        d = load_npz_dict(path)
+        obj = cls(k=int(d["k"][0]), s=int(d["s"][0]), seed=int(d["seed"][0]))
+        obj.S = d["S"]
+        return obj

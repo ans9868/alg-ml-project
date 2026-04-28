@@ -30,16 +30,25 @@ from src import metrics
 from src import preprocessing as pp
 from src.pca_baseline import PCAReducer
 from src.projections import DenseGaussianJL, SparseJL
+from src.utils import (
+    get_git_sha,
+    now_utc_iso,
+    save_json,
+    save_npz_dict,
+)
 
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 RESULTS_DIR = PROJECT_ROOT / "results"
+ARTIFACT_DIR = RESULTS_DIR / "phase0" / "runs"
 
 UNIVERSE = "top_100"
+SLICE = "full_incl_covid"
 K = 20
 SPARSE_S = 3  # primary sparse JL value per proposal §6.4
 TRAIN_FRAC = 0.7
 N_PAIRS = 50_000
 SEED = 0
+SAVE_ARTIFACTS = True
 
 
 def main() -> None:
@@ -80,13 +89,14 @@ def main() -> None:
     print(f"[4/5] Fit & transform all 4 methods at k={K}")
     methods: dict[str, dict] = {}
 
-    # raw: identity
-    methods["raw"] = {"Z_test": Z_raw_test, "extras": {}}
+    # raw: identity (no method object)
+    methods["raw"] = {"Z_test": Z_raw_test, "obj": None, "extras": {}}
 
     # PCA
     pca = PCAReducer(k=K, random_state=SEED).fit(X_train_arr)
     methods["pca"] = {
         "Z_test": pca.transform(X_test_arr),
+        "obj": pca,
         "extras": {"explained_variance": float(pca.explained_variance_ratio.sum())},
     }
 
@@ -94,6 +104,7 @@ def main() -> None:
     dense_jl = DenseGaussianJL(k=K, seed=SEED).fit(X_train_arr)
     methods["dense_jl"] = {
         "Z_test": dense_jl.transform(X_test_arr),
+        "obj": dense_jl,
         "extras": {"nnz": dense_jl.nnz},
     }
 
@@ -101,6 +112,7 @@ def main() -> None:
     sparse_jl = SparseJL(k=K, s=SPARSE_S, seed=SEED).fit(X_train_arr)
     methods["sparse_jl_s3"] = {
         "Z_test": sparse_jl.transform(X_test_arr),
+        "obj": sparse_jl,
         "extras": {"nnz": sparse_jl.nnz, "s": SPARSE_S},
     }
 
@@ -109,6 +121,7 @@ def main() -> None:
 
     print(f"[5/5] Distance distortion ({N_PAIRS:,} sampled pairs, seed={SEED})")
     rows = []
+    git_sha = get_git_sha(PROJECT_ROOT)
     for name, m in methods.items():
         result = metrics.distance_distortion(
             Z_raw=Z_raw_test,
@@ -119,6 +132,7 @@ def main() -> None:
         row = {
             "method": name,
             "universe": UNIVERSE,
+            "slice": SLICE,
             "n_assets": len(top_100),
             "k": K,
             "seed": SEED,
@@ -131,6 +145,49 @@ def main() -> None:
             **m["extras"],
         }
         rows.append(row)
+
+        if SAVE_ARTIFACTS:
+            # Build per-config run directory
+            s_part = f"s{SPARSE_S}" if name == "sparse_jl_s3" else "sNA"
+            run_dir = (
+                ARTIFACT_DIR
+                / UNIVERSE
+                / SLICE
+                / name
+                / f"k{K}_{s_part}_seed{SEED}"
+            )
+            run_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save compressed test matrix + train/test date indices
+            save_npz_dict(
+                run_dir / "compressed.npz",
+                Z_test=m["Z_test"],
+                test_dates=X_test_z.index.astype("int64").to_numpy(),
+            )
+
+            # Save projection matrix where applicable
+            obj = m.get("obj")
+            if obj is not None:
+                obj.save(run_dir / "projection.npz")
+
+            # Save metric results + run metadata
+            save_json(run_dir / "metrics.json", {"distance_distortion": result})
+            save_json(
+                run_dir / "run_meta.json",
+                {
+                    "method": name,
+                    "universe": UNIVERSE,
+                    "slice": SLICE,
+                    "k": K,
+                    "s": SPARSE_S if name == "sparse_jl_s3" else None,
+                    "seed": SEED,
+                    "n_assets": len(top_100),
+                    "train_frac": TRAIN_FRAC,
+                    "git_sha": git_sha,
+                    "timestamp_utc": now_utc_iso(),
+                    **m["extras"],
+                },
+            )
 
     df = pd.DataFrame(rows)
     print()
