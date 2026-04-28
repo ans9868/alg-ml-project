@@ -27,6 +27,9 @@ data/processed/returns_matrix.csv
 # Keep aggregated CSVs in results/, but not the thousands of per-run files.
 results/*/runs/
 
+# Cloud-pulled artifact tree (mirror of remote runs/, ~5 GB)
+data/cloud_artifacts/
+
 # Keep the directory structure
 !data/raw/.gitkeep
 !data/processed/.gitkeep

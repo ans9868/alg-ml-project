@@ -14,6 +14,7 @@ Technical notes for engineers working on this project. Audience: developers and 
 | [upgrade-better-saving.md](upgrade-better-saving.md) | Plan to persist all intermediates (Z matrices, projection matrices, etc.) so new metrics can be added without re-fitting. |
 | [upgrade-ray-parallelization.md](upgrade-ray-parallelization.md) | Plan to move from sequential to Ray-based parallel execution; covers `ExperimentConfig`, runner, backends. |
 | [hpc-experiments.md](hpc-experiments.md) | Phase 1 cloud experiment plan: VM choice, the full config matrix, staged order of operations, success criteria. |
+| [yolo-findings.md](yolo-findings.md) | Results writeup from the first complete Phase 1 grid (48,240 configs, 5 universes, both protocols, 100 seeds). The three real findings: JL scale-invariance, COVID stress, sparse JL parity. |
 
 ## Where the high-level docs live
 

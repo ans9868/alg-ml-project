@@ -1,0 +1,8 @@
+metric,direction,winner,winner_value,raw,pca,dense_jl,sparse_jl_s3
+dd_mean_abs,min,raw,0.0,0.0,0.258,0.1268,0.1215
+nn_overlap_at_5,max,raw,1.0,1.0,0.3735,0.1973,0.2039
+nn_overlap_at_10,max,raw,1.0,1.0,0.4523,0.2535,0.2611
+ari_mean,max,raw,1.0,1.0,0.8181,0.3421,0.3495
+anomaly_recall_5pct,max,raw,1.0,1.0,0.8095,0.7102,0.7376
+anomaly_score_spearman,max,raw,1.0,1.0,0.9231,0.8945,0.9027
+sparsity_ratio,max,pca,1.0,,1.0,0.0,0.85
