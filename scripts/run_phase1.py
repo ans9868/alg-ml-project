@@ -39,13 +39,20 @@ ARTIFACT_BASE = RESULTS_DIR / "runs"
 
 
 # ---------------------------------------------------------------------
-# Slice masks
+# Time windows
 # ---------------------------------------------------------------------
 COVID_START = pd.Timestamp("2020-02-19")
 COVID_END = pd.Timestamp("2020-04-30")
+PRECOVID_TRAIN_END = pd.Timestamp("2019-12-31")
 
 
-def slice_test(X_test: pd.DataFrame, slice_name: str) -> pd.DataFrame:
+def slice_test_chrono(X_test: pd.DataFrame, slice_name: str) -> pd.DataFrame:
+    """Slice the test set under the chrono70_30 protocol.
+    Note: with the standard 70/30 split, the test starts ~2021-09; covid_only
+    is empty (skipped upstream) and full_incl/excl are equivalent.
+    """
+    if slice_name == "full":
+        return X_test
     if slice_name == "full_incl_covid":
         return X_test
     if slice_name == "full_excl_covid":
@@ -54,16 +61,36 @@ def slice_test(X_test: pd.DataFrame, slice_name: str) -> pd.DataFrame:
     if slice_name == "covid_only":
         mask = (X_test.index >= COVID_START) & (X_test.index <= COVID_END)
         return X_test.loc[mask]
-    raise ValueError(f"Unknown slice {slice_name!r}")
+    raise ValueError(f"Unknown chrono slice {slice_name!r}")
+
+
+def slice_test_precovid(X_test: pd.DataFrame, slice_name: str) -> pd.DataFrame:
+    """Slice the test set under the preCOVID protocol.
+    Test starts 2020-01-01 (after train end of 2019-12-31).
+    """
+    if slice_name == "all_test":
+        return X_test
+    if slice_name == "covid_only":
+        mask = (X_test.index >= COVID_START) & (X_test.index <= COVID_END)
+        return X_test.loc[mask]
+    if slice_name == "post_covid":
+        mask = X_test.index > COVID_END
+        return X_test.loc[mask]
+    raise ValueError(f"Unknown preCOVID slice {slice_name!r}")
 
 
 # ---------------------------------------------------------------------
 # Universe loaders
 # ---------------------------------------------------------------------
-def load_universe_data(universe: str, slice_name: str, train_frac: float) -> dict:
-    """Load returns for a universe, do split + standardize, slice the test set.
-
-    Returns dict with X_train, X_test arrays and a few index helpers.
+def load_universe_data(
+    universe: str,
+    protocol: str,
+    slice_name: str,
+    train_frac: float = 0.7,
+) -> dict:
+    """Load returns for a universe under a given training protocol, then slice
+    the test set per the slice name. Standardization is fit on the train slice
+    that the protocol defines.
     """
     returns = pd.read_csv(
         PROCESSED_DIR / "returns_matrix.csv", index_col=0, parse_dates=True
@@ -79,9 +106,21 @@ def load_universe_data(universe: str, slice_name: str, train_frac: float) -> dic
         raise ValueError(f"Unknown universe {universe!r}")
 
     X = returns[tickers].dropna(how="all")
-    X_train, X_test = pp.chronological_train_test_split(X, train_frac=train_frac)
-    X_train_z, X_test_z, mu, sigma = pp.standardize_with_train_stats(X_train, X_test)
-    X_test_z_sliced = slice_test(X_test_z, slice_name)
+
+    if protocol == "chrono70_30":
+        X_train, X_test = pp.chronological_train_test_split(X, train_frac=train_frac)
+        X_train_z, X_test_z, mu, sigma = pp.standardize_with_train_stats(X_train, X_test)
+        X_test_z_sliced = slice_test_chrono(X_test_z, slice_name)
+    elif protocol == "preCOVID":
+        # Train: 2014-01-01 to 2019-12-31 (~6 years)
+        # Test:  2020-01-01 to 2024-12-31 (~5 years incl. COVID + post-COVID)
+        train_mask = X.index <= PRECOVID_TRAIN_END
+        X_train = X.loc[train_mask].copy()
+        X_test = X.loc[~train_mask].copy()
+        X_train_z, X_test_z, mu, sigma = pp.standardize_with_train_stats(X_train, X_test)
+        X_test_z_sliced = slice_test_precovid(X_test_z, slice_name)
+    else:
+        raise ValueError(f"Unknown protocol {protocol!r}")
 
     return {
         "X_train": X_train_z.values,
@@ -97,10 +136,14 @@ def load_universe_data(universe: str, slice_name: str, train_frac: float) -> dic
 # ---------------------------------------------------------------------
 # Subsets
 # ---------------------------------------------------------------------
+CHRONO = ("chrono70_30", ["full"])
+PRECOVID = ("preCOVID", ["covid_only", "post_covid", "all_test"])
+
+
 def grid_smoke() -> list[ExperimentConfig]:
     return generate_experiment_grid(
         universes=["top_100"],
-        slices=["full_incl_covid"],
+        protocol_slices=[("chrono70_30", ["full"])],
         methods=["raw", "pca", "dense_jl", "sparse_jl"],
         k_values=[20],
         s_values=[3],
@@ -111,7 +154,7 @@ def grid_smoke() -> list[ExperimentConfig]:
 def grid_core() -> list[ExperimentConfig]:
     return generate_experiment_grid(
         universes=["top_100"],
-        slices=["full_incl_covid"],
+        protocol_slices=[CHRONO],
         methods=["raw", "pca", "dense_jl", "sparse_jl"],
         k_values=[5, 10, 20, 30, 50, 100],
         s_values=[1, 3, 5],
@@ -120,32 +163,41 @@ def grid_core() -> list[ExperimentConfig]:
 
 
 def grid_top100_full() -> list[ExperimentConfig]:
-    """Comprehensive top_100 grid: 50 seeds, all slices (covid_only auto-skipped)."""
+    """Comprehensive top_100 grid: both protocols, all slices, 50 seeds."""
     return generate_experiment_grid(
         universes=["top_100"],
-        slices=["full_incl_covid", "full_excl_covid", "covid_only"],
+        protocol_slices=[CHRONO, PRECOVID],
         methods=["raw", "pca", "dense_jl", "sparse_jl"],
         k_values=[5, 10, 20, 30, 50, 100],
         s_values=[1, 3, 5],
         seeds=range(50),
+    )
+
+
+def grid_yolo() -> list[ExperimentConfig]:
+    """The whole shebang. 5 universes (top_100/200/300/400/MAX),
+    both protocols, all slices, 100 seeds. ~50K configs.
+    """
+    return generate_experiment_grid(
+        universes=["top_100", "top_200", "top_300", "top_400", "all_survivors"],
+        protocol_slices=[CHRONO, PRECOVID],
+        methods=["raw", "pca", "dense_jl", "sparse_jl"],
+        k_values=[5, 10, 20, 30, 50, 100],
+        s_values=[1, 3, 5],
+        seeds=range(100),
     )
 
 
 def grid_full() -> list[ExperimentConfig]:
-    return generate_experiment_grid(
-        universes=["top_100", "top_200", "all_survivors"],
-        slices=["full_incl_covid", "full_excl_covid", "covid_only"],
-        methods=["raw", "pca", "dense_jl", "sparse_jl"],
-        k_values=[5, 10, 20, 30, 50, 100],
-        s_values=[1, 3, 5],
-        seeds=range(50),
-    )
+    """Alias for yolo (backwards compat)."""
+    return grid_yolo()
 
 
 SUBSETS = {
     "smoke": grid_smoke,
     "core": grid_core,
     "top100_full": grid_top100_full,
+    "yolo": grid_yolo,
     "full": grid_full,
 }
 
@@ -166,39 +218,36 @@ def main():
     configs = SUBSETS[args.subset]()
     print(f"Subset: {args.subset}, total configs: {len(configs)}")
 
-    # Pre-load all needed (universe, slice) pairs.
-    needed_pairs = sorted({(c.universe, c.slice) for c in configs})
+    # Pre-load all needed (universe, protocol, slice) triples.
+    needed = sorted({(c.universe, c.protocol, c.slice) for c in configs})
     prepared_data: dict[str, dict] = {}
-    skipped_pairs: list[tuple[str, str]] = []
-    print(f"Preparing data for {len(needed_pairs)} (universe, slice) pairs...")
-    for universe, slice_ in needed_pairs:
-        key = f"{universe}__{slice_}"
-        d = load_universe_data(universe, slice_, train_frac=configs[0].train_frac)
-        # Skip degenerate slices (e.g. covid_only with the standard 70/30 split
-        # has 0 test rows because COVID lives in train). Per proposal §5.5
-        # the proper fix is a pre-COVID training protocol; tracked as Phase 1.5.
+    skipped_triples: list[tuple[str, str, str]] = []
+    print(f"Preparing data for {len(needed)} (universe, protocol, slice) triples...")
+    for universe, protocol, slice_ in needed:
+        key = f"{universe}__{protocol}__{slice_}"
+        d = load_universe_data(universe, protocol, slice_, train_frac=configs[0].train_frac)
+        # Skip degenerate slices: with chrono70_30, covid_only ends up with 0
+        # rows because COVID is in train.
         if d["X_test"].shape[0] < 10:
-            print(f"  WARN: {universe}/{slice_} has {d['X_test'].shape[0]} test rows -- skipping")
-            skipped_pairs.append((universe, slice_))
+            print(f"  WARN: {key} has {d['X_test'].shape[0]} test rows -- skipping")
+            skipped_triples.append((universe, protocol, slice_))
             continue
         prepared_data[key] = d
-    if skipped_pairs:
-        configs = [c for c in configs if (c.universe, c.slice) not in skipped_pairs]
+    if skipped_triples:
+        configs = [c for c in configs if (c.universe, c.protocol, c.slice) not in skipped_triples]
         print(f"  Skipped configs after filter: {len(configs)} remaining")
 
-    # Re-key configs by (universe, slice) so the runner finds them
-    # (the runner's prepared_data is keyed by universe; we use a composite key).
-    # Simpler: store under the universe key alone; the slice has been baked into
-    # the test-set already, so each (universe, slice) is its own pseudo-universe
-    # for the purposes of the runner.
+    # The runner keys prepared_data by "universe". We bake (protocol, slice) into
+    # a composite pseudo-universe so each config has the correct sliced test set.
     runner_data = {}
     new_configs: list[ExperimentConfig] = []
     for c in configs:
-        pseudo_universe = f"{c.universe}__{c.slice}"
+        pseudo_universe = f"{c.universe}__{c.protocol}__{c.slice}"
         runner_data[pseudo_universe] = prepared_data[pseudo_universe]
         new_configs.append(
             ExperimentConfig(
                 universe=pseudo_universe,
+                protocol=c.protocol,
                 slice=c.slice,
                 method=c.method,
                 k=c.k,
@@ -223,7 +272,7 @@ def main():
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     out_csv = RESULTS_DIR / f"phase1_{args.subset}_{args.backend}.csv"
-    df.sort_values(["universe", "slice", "method", "k", "s", "seed"], inplace=True, na_position="first")
+    df.sort_values(["universe", "protocol", "slice", "method", "k", "s", "seed"], inplace=True, na_position="first")
     df.to_csv(out_csv, index=False)
 
     print()
