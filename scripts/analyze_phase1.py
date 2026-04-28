@@ -292,6 +292,79 @@ def universe_scaling_table(df, k=20, protocol="chrono70_30", slice_="full"):
 # ---------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------
+UNIVERSES = ["top_100", "top_200", "top_300", "top_400", "all_survivors"]
+
+
+def _save_and_close(fig, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=140, bbox_inches="tight")
+    print(f"  wrote {path.relative_to(PROJECT_ROOT)}")
+    plt.close(fig)
+
+
+def generate_per_universe_figs(df, universe: str, out_dir: Path) -> None:
+    """All universe-specific plots into figures/{universe}/."""
+    _save_and_close(
+        fig_metric_panel_vs_k(df, universe, "chrono70_30", "full"),
+        out_dir / "metric_panel_chrono.png",
+    )
+    _save_and_close(
+        fig_metric_panel_vs_k(df, universe, "preCOVID", "all_test"),
+        out_dir / "metric_panel_precovid_all_test.png",
+    )
+
+    _save_and_close(
+        fig_covid_stress(df, "dd_mean_abs", "Distance distortion |ρ - 1|", universe=universe),
+        out_dir / "covid_dd.png",
+    )
+    _save_and_close(
+        fig_covid_stress(df, "anomaly_recall_5pct", "Anomaly recall @ top 5%", universe=universe),
+        out_dir / "covid_anomaly_recall.png",
+    )
+    _save_and_close(
+        fig_covid_stress(df, "nn_overlap_at_5", "5-NN overlap", universe=universe),
+        out_dir / "covid_nn5.png",
+    )
+    _save_and_close(
+        fig_covid_stress(df, "ari_mean", "Clustering ARI", universe=universe),
+        out_dir / "covid_ari.png",
+    )
+
+    _save_and_close(
+        fig_runtime_frontier(df, "dd_mean_abs", "Distance distortion |ρ - 1|", universe=universe),
+        out_dir / "runtime_frontier_dd.png",
+    )
+    _save_and_close(
+        fig_runtime_frontier(df, "anomaly_recall_5pct", "Anomaly recall", universe=universe),
+        out_dir / "runtime_frontier_anomaly.png",
+    )
+
+    _save_and_close(
+        fig_sparsity_tradeoff(df, universe=universe),
+        out_dir / "sparsity_tradeoff.png",
+    )
+
+
+def generate_cross_universe_figs(df, out_dir: Path) -> None:
+    """Plots that span universes (universe scaling)."""
+    _save_and_close(
+        fig_universe_scaling(df, "dd_mean_abs", "Distance distortion |ρ - 1|"),
+        out_dir / "universe_scaling_dd.png",
+    )
+    _save_and_close(
+        fig_universe_scaling(df, "nn_overlap_at_5", "5-NN overlap"),
+        out_dir / "universe_scaling_nn5.png",
+    )
+    _save_and_close(
+        fig_universe_scaling(df, "ari_mean", "Clustering ARI"),
+        out_dir / "universe_scaling_ari.png",
+    )
+    _save_and_close(
+        fig_universe_scaling(df, "anomaly_recall_5pct", "Anomaly recall"),
+        out_dir / "universe_scaling_anomaly.png",
+    )
+
+
 def main(csv_path: Path = DEFAULT_CSV) -> None:
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
@@ -300,47 +373,16 @@ def main(csv_path: Path = DEFAULT_CSV) -> None:
     df = load_results(csv_path)
     print(f"  rows: {len(df):,}")
 
-    print("\nGenerating plots...")
+    print("\nGenerating per-universe plots...")
+    for universe in UNIVERSES:
+        out_dir = FIG_DIR / universe
+        print(f"\n  -- {universe} -->")
+        generate_per_universe_figs(df, universe, out_dir)
 
-    figs = [
-        ("yolo_metric_panel_top100_chrono.png",
-         fig_metric_panel_vs_k(df, "top_100", "chrono70_30", "full")),
-        ("yolo_metric_panel_all_survivors_chrono.png",
-         fig_metric_panel_vs_k(df, "all_survivors", "chrono70_30", "full")),
-
-        ("yolo_covid_dd.png",
-         fig_covid_stress(df, "dd_mean_abs", "Distance distortion |ρ - 1|")),
-        ("yolo_covid_anomaly_recall.png",
-         fig_covid_stress(df, "anomaly_recall_5pct", "Anomaly recall @ top 5%")),
-        ("yolo_covid_nn5.png",
-         fig_covid_stress(df, "nn_overlap_at_5", "5-NN overlap")),
-        ("yolo_covid_ari.png",
-         fig_covid_stress(df, "ari_mean", "Clustering ARI")),
-
-        ("yolo_universe_scaling_dd.png",
-         fig_universe_scaling(df, "dd_mean_abs", "Distance distortion |ρ - 1|")),
-        ("yolo_universe_scaling_nn5.png",
-         fig_universe_scaling(df, "nn_overlap_at_5", "5-NN overlap")),
-        ("yolo_universe_scaling_ari.png",
-         fig_universe_scaling(df, "ari_mean", "Clustering ARI")),
-
-        ("yolo_runtime_frontier_dd.png",
-         fig_runtime_frontier(df, "dd_mean_abs", "Distance distortion |ρ - 1|")),
-        ("yolo_runtime_frontier_anomaly.png",
-         fig_runtime_frontier(df, "anomaly_recall_5pct", "Anomaly recall")),
-
-        ("yolo_sparsity_tradeoff.png",
-         fig_sparsity_tradeoff(df)),
-    ]
-
-    for filename, fig in figs:
-        path = FIG_DIR / filename
-        fig.savefig(path, dpi=140, bbox_inches="tight")
-        print(f"  wrote {path.relative_to(PROJECT_ROOT)}")
-        plt.close(fig)
+    print("\nGenerating cross-universe plots...")
+    generate_cross_universe_figs(df, FIG_DIR / "cross_universe")
 
     print("\nGenerating summary tables...")
-
     best = best_method_table(df)
     best.to_csv(SUMMARY_DIR / "yolo_best_method_top100_k20.csv", index=False)
     print(f"  wrote yolo_best_method_top100_k20.csv")

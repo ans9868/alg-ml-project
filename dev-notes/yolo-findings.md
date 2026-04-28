@@ -2,7 +2,7 @@
 
 This is the analysis writeup of the first complete Phase 1 grid: 48,240 configs across 5 universes, 2 training protocols (chronological 70/30 + the §5.5 pre-COVID protocol), 4 methods, 6 k-values, 3 sparsity values, and 100 seeds for randomized methods. Run on a 32-vCPU GCP VM in ~34 minutes.
 
-Source: `results/phase1/cloud/phase1_yolo_ray.csv`. Plots in `figures/yolo_*.png`. The CSV is committed; per-config artifacts are gitignored but were copied back to `data/cloud_artifacts/runs/` for notebook use.
+Source: `results/phase1/cloud/phase1_yolo_ray.csv`. Plots in `figures/{universe}/*.png` and `figures/cross_universe/*.png` (49 plots total — 9 per-universe plots × 5 universes + 4 cross-universe). The CSV is committed; per-config artifacts are gitignored but were copied back to `data/cloud_artifacts/runs/` for notebook use.
 
 ## TL;DR — three real findings
 
@@ -28,7 +28,7 @@ Table: distance distortion at k=20 across universe sizes (`chrono70_30/full`):
 | 400 | 0.128 | 0.126 | 0.350 |
 | **452** | **0.127** | **0.125** | **0.355** |
 
-**Plot:** [`figures/yolo_universe_scaling_dd.png`](../figures/yolo_universe_scaling_dd.png).
+**Plot:** [`figures/cross_universe/universe_scaling_dd.png`](../figures/cross_universe/universe_scaling_dd.png).
 
 **Why this matters:** The Johnson–Lindenstrauss lemma says the embedding dimension k needed for a target distortion ε depends on the *number of points* (here, T_test trading days) and ε, **not on the input dimension N**. So at fixed k, JL's epsilon is essentially constant in N. PCA, in contrast, maps to the top-k subspace of an N-dimensional input. As N grows, the orthogonal complement (the part PCA discards) gets relatively larger — so distance distortion grows.
 
@@ -47,7 +47,7 @@ Table: how each metric changes during COVID-only vs post-COVID, both evaluated u
 | ari_mean (higher better) | −0.25 | −0.24 | **−0.004** |
 | anomaly_recall (higher better) | −0.009 | +0.018 | **−0.18** |
 
-**Plots:** [`figures/yolo_covid_anomaly_recall.png`](../figures/yolo_covid_anomaly_recall.png), [`figures/yolo_covid_dd.png`](../figures/yolo_covid_dd.png), [`figures/yolo_covid_nn5.png`](../figures/yolo_covid_nn5.png), [`figures/yolo_covid_ari.png`](../figures/yolo_covid_ari.png).
+**Plots:** [`figures/top_100/covid_anomaly_recall.png`](../figures/top_100/covid_anomaly_recall.png), [`figures/top_100/covid_dd.png`](../figures/top_100/covid_dd.png), [`figures/top_100/covid_nn5.png`](../figures/top_100/covid_nn5.png), [`figures/top_100/covid_ari.png`](../figures/top_100/covid_ari.png). Same plots are also produced for top_200 / top_300 / top_400 / all_survivors under their respective subdirectories.
 
 Three findings here:
 
@@ -76,7 +76,7 @@ At k=20 and s=3, sparse JL has 300 nonzeros (`N×s`); dense JL has 2,000 nonzero
 
 Within seed-noise, identical. Sparse JL even nudges ahead on anomaly recall (probably noise across 100 seeds, but interesting).
 
-**Plot:** [`figures/yolo_sparsity_tradeoff.png`](../figures/yolo_sparsity_tradeoff.png) shows the full sparsity-vs-distortion curve across (k, s).
+**Plot:** [`figures/top_100/sparsity_tradeoff.png`](../figures/top_100/sparsity_tradeoff.png) shows the full sparsity-vs-distortion curve across (k, s) for top_100; same plot exists for each of the other universes.
 
 **Why this matters in practice:** Sparse JL's projection matrix can be stored as sparse data and applied via sparse matrix-vector multiplication. For a streaming pipeline that compresses every day's market state in real time, this is a 6.7× speedup with no measurable quality loss.
 
@@ -91,7 +91,7 @@ Within seed-noise, identical. Sparse JL even nudges ahead on anomaly recall (pro
 | **dense_jl** | 0.127 | 0.197 | 0.342 | 0.710 | 0.000 |
 | **sparse_jl (s=3)** | **0.122** | 0.204 | 0.350 | 0.738 | **0.850** |
 
-**Plot:** [`figures/yolo_metric_panel_top100_chrono.png`](../figures/yolo_metric_panel_top100_chrono.png) (4-panel sweep across k).
+**Plot:** [`figures/top_100/metric_panel_chrono.png`](../figures/top_100/metric_panel_chrono.png) (4-panel sweep across k). Same plot for the preCOVID protocol is at [`figures/top_100/metric_panel_precovid_all_test.png`](../figures/top_100/metric_panel_precovid_all_test.png).
 
 The "winner" depends entirely on what you're optimizing for:
 
@@ -122,7 +122,7 @@ This is the "trader's decision tree" from `dev-notes/metrics-explained.md`, now 
 
 **For the final report (proposal §17 structure):**
 - Sections "Real-data results" and "COVID-stress results" can lift directly from this doc.
-- The 12 plots in `figures/yolo_*.png` are most of the proposal §11 figure-catalog Phase-1 demand. Synthetic plots (figs 43–48 in §11) require running the synthetic experiment.
+- The 49 plots in `figures/{universe}/*.png` and `figures/cross_universe/*.png` cover most of the proposal §11 figure-catalog Phase-1 demand. Synthetic plots (figs 43–48 in §11) require running the synthetic experiment.
 - The `best_method_table` from analyze_phase1.py becomes the §13.1 "Final recommendation table".
 
 **Proposal v6 amendments needed:**
@@ -149,7 +149,8 @@ cd ~/projects/alg-ml-project
 python scripts/analyze_phase1.py results/phase1/cloud/phase1_yolo_ray.csv
 
 # Outputs:
-#   figures/yolo_*.png              (12 plots)
+#   figures/{universe}/*.png   (45 per-universe plots)
+#   figures/cross_universe/*.png  (4 cross-universe plots)
 #   results/phase1/cloud/yolo_*_summary.csv  (3 summary tables)
 ```
 
