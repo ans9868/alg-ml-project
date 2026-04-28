@@ -7,6 +7,7 @@ Technical notes for engineers working on this project. Audience: developers and 
 | File | Purpose |
 |---|---|
 | [recreate-results.md](recreate-results.md) | Step-by-step commands to recreate every result from a fresh checkout. Start here if you want to run the project. |
+| [metrics-explained.md](metrics-explained.md) | All 5 metrics from proposal §7 in plain English with math and trader-friendly impact analysis. The "why does each metric matter" reference. |
 | [data-source-comparison.md](data-source-comparison.md) | Detailed comparison of yfinance vs the Kaggle `andrewmvd/sp-500-stocks` dataset. Documents the Phase 0 finding that the Kaggle dataset is broken for ~127 large-cap tickers. |
 | [phase0-findings.md](phase0-findings.md) | Empirical findings from the Phase 0 smoke test, including amendments to the frozen proposal. |
 | [architecture.md](architecture.md) | Module-by-module description of the codebase. How `data_loader`, `preprocessing`, `projections`, `pca_baseline`, `metrics` fit together. |

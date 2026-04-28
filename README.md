@@ -16,7 +16,8 @@ The data pipeline and method/metric architecture are validated end-to-end on a 1
 | [`report/preliminary_results.pdf`](report/preliminary_results.pdf) | Anyone who wants to read Phase 0 results without diving into code | ~5 pages |
 | [`PROJECT_PLAN.md`](PROJECT_PLAN.md) | Project lead | Operational checklist, phase tracking |
 | [`LAPTOP_PLAN.md`](LAPTOP_PLAN.md) | Active developer | Phase 0 task list with empirical results |
-| [`dev-notes/`](dev-notes/) | Engineers reproducing or extending the work | Detailed technical notes |
+| [`dev-notes/metrics-explained.md`](dev-notes/metrics-explained.md) | Trader / non-academic reader | All 5 metrics in plain English with math + impact |
+| [`dev-notes/`](dev-notes/) | Engineers reproducing or extending the work | Full technical notes index |
 
 ## Quick start
 
